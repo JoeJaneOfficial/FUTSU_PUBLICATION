@@ -52,8 +52,7 @@ def sync(game_root: Path) -> Path:
         shutil.copy2(f, target / relative)
         hashes[relative.as_posix()] = _digest(f)
     manifest = {"version": __version__, "commit": _commit(), "files": hashes}
-    (target / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8", newline="
-")
+    (target / MANIFEST).write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8", newline="\n")
     return target
 
 
