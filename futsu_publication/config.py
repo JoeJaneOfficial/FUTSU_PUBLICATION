@@ -12,6 +12,7 @@ Example (Dirty Peloton)::
     lock = "publication/verrou.txt"
     collect_package_data = true      # package data declared in pyproject (PyInstaller --collect-data)
     extra_data = []                  # [["assets", "assets"], ...] : folders outside the package
+    collect_data = []                # third-party packages whose data PyInstaller misses (["arcade"])
     smoke_args = ["--verifier"]      # the report path is appended
 
     [qt]                             # optional: PySide6 games only
@@ -49,6 +50,7 @@ class GameConfig:
     icon: Path | None = None
     collect_package_data: bool = True
     extra_data: tuple[tuple[Path, str], ...] = ()
+    collect_data: tuple[str, ...] = ()
     smoke_args: tuple[str, ...] = ()
     qt: QtConfig = field(default_factory=QtConfig)
     steam_sdk_dir: Path | None = None
@@ -89,6 +91,7 @@ def load_config(root: Path, path: Path | None = None) -> GameConfig:
         icon=root / game["icon"] if game.get("icon") else None,
         collect_package_data=bool(game.get("collect_package_data", True)),
         extra_data=tuple((root / src, str(dst)) for src, dst in game.get("extra_data", ())),
+        collect_data=tuple(str(x) for x in game.get("collect_data", ())),
         smoke_args=tuple(str(a) for a in game.get("smoke_args", ())),
         qt=QtConfig(tuple(qt.get("prune", ())), tuple(qt.get("languages", ()))),
         steam_sdk_dir=root / steam["sdk_dir"] if steam.get("sdk_dir") else None,

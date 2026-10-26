@@ -86,6 +86,8 @@ def freeze(config: GameConfig) -> Path:
         command += ["--icon", str(config.icon)]
     if config.collect_package_data:
         command += ["--collect-data", config.package]
+    for package in config.collect_data:
+        command += ["--collect-data", package]
     for source, destination in config.extra_data:
         command += ["--add-data", f"{source}{';' if sys.platform == 'win32' else ':'}{destination}"]
     command.append(str(config.launcher))
