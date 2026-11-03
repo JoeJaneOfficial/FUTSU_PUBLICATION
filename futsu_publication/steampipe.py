@@ -21,6 +21,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from futsu_publication import licenses
 from futsu_publication.build import STEAM_DLL
 from futsu_publication.config import GameConfig
 
@@ -49,6 +50,8 @@ def problems(config: GameConfig, dry_run: bool = False) -> list[str]:
             found.append(f"no {STEAM_DLL} in the build: put it in {config.steam_sdk_dir} and rebuild")
         if (config.dist / "steam_appid.txt").exists():
             found.append("steam_appid.txt is in the build (development only)")
+        if config.licenses.enabled:
+            found += licenses.check(config)
     if steam.branch in FORBIDDEN_BRANCHES:
         found.append(f"branch {steam.branch!r}: upload to a beta branch, go public by hand in Steamworks")
     if dry_run:

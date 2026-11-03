@@ -26,6 +26,13 @@ Example (Dirty Peloton)::
     branch = "beta"                  # where uploads go live; never "default"
     steamcmd = "publication/steam/steamcmd/steamcmd.exe"   # else steamcmd on PATH
     account = ""                     # build account; FUTSU_STEAM_ACCOUNT overrides
+
+    [licenses]                       # optional: third-party licence texts in the build
+    folder = "licenses"              # the folder next to the executable
+    notice = "publication/licenses/NOTICE.txt"   # heads THIRD_PARTY.txt
+    files = ["publication/licenses/LGPL-3.0.txt", ["data/flags/LICENSE", "MIT-flags.txt"]]
+    exclude = []                     # packages in the build venv that are not shipped
+    drop = ["LicenseRef-Qt-Commercial.txt"]      # package licence files not to copy (glob)
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 DEFAULT_CONFIG = Path("publication") / "publication.toml"
 
@@ -53,6 +61,16 @@ class SteamConfig:
 
 
 @dataclass(frozen=True)
+class LicensesConfig:
+    enabled: bool = False
+    folder: str = "licenses"
+    notice: Path | None = None
+    files: tuple[tuple[Path, str], ...] = ()
+    exclude: tuple[str, ...] = ()
+    drop: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class GameConfig:
     root: Path
     name: str
@@ -69,6 +87,7 @@ class GameConfig:
     qt: QtConfig = field(default_factory=QtConfig)
     steam_sdk_dir: Path | None = None
     steam: SteamConfig = field(default_factory=SteamConfig)
+    licenses: LicensesConfig = field(default_factory=LicensesConfig)
 
     @property
     def build_dir(self) -> Path:
@@ -95,6 +114,7 @@ def load_config(root: Path, path: Path | None = None) -> GameConfig:
     game = raw["game"]
     qt = raw.get("qt", {})
     steam = raw.get("steam", {})
+    licenses = raw.get("licenses")
     return GameConfig(
         root=root,
         name=str(game["name"]),
@@ -117,4 +137,27 @@ def load_config(root: Path, path: Path | None = None) -> GameConfig:
             steamcmd=root / steam["steamcmd"] if steam.get("steamcmd") else None,
             account=str(steam.get("account", "")),
         ),
+        licenses=_licenses(root, licenses),
+    )
+
+
+def _licenses(root: Path, raw: dict[str, Any] | None) -> LicensesConfig:
+    """``files`` entries are a path (copied under its own name) or ``[path, name]``."""
+    if raw is None:
+        return LicensesConfig()
+    files: list[tuple[Path, str]] = []
+    for entry in raw.get("files", ()):
+        if isinstance(entry, str):
+            files.append((root / entry, Path(entry).name))
+        else:
+            source, name = entry
+            files.append((root / str(source), str(name)))
+    notice = raw.get("notice")
+    return LicensesConfig(
+        enabled=True,
+        folder=str(raw.get("folder", "licenses")),
+        notice=root / str(notice) if notice else None,
+        files=tuple(files),
+        exclude=tuple(str(x) for x in raw.get("exclude", ())),
+        drop=tuple(str(x) for x in raw.get("drop", ())),
     )

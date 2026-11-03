@@ -1,10 +1,12 @@
-"""The kit on its own: config, pruning, achievements, the inert Steam bridge, logs, sync."""
+"""The kit on its own: config, pruning, achievements, the inert Steam bridge, logs, sync,
+SteamPipe, licences."""
 
+import sys
 from pathlib import Path
 
 import pytest
 
-from futsu_publication import steampipe
+from futsu_publication import licenses, steampipe
 from futsu_publication import sync as sync_module
 from futsu_publication.achievements import Achievements, load_definitions
 from futsu_publication.build import add_steam, prune_qt
@@ -33,7 +35,7 @@ sdk_dir = "publication/steam"
 
 
 def _game(tmp_path: Path) -> Path:
-    (tmp_path / "publication").mkdir()
+    (tmp_path / "publication").mkdir(parents=True)
     (tmp_path / "publication" / "publication.toml").write_text(CONFIG, encoding="utf-8")
     (tmp_path / "demo").mkdir()
     (tmp_path / "demo" / "version.py").write_text('VERSION = "1.2.3"\n', encoding="utf-8")
@@ -148,7 +150,7 @@ def test_steam_config_defaults(tmp_path: Path) -> None:
 
 def test_steampipe_problems(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(steampipe.ACCOUNT_ENV, raising=False)
-    monkeypatch.setattr(steampipe.shutil, "which", lambda _: None)
+    monkeypatch.setattr("futsu_publication.steampipe.shutil.which", lambda _: None)
     config = load_config(_game(tmp_path))
     assert any("no build" in p for p in steampipe.problems(config, dry_run=True))
     config.dist.mkdir(parents=True)
@@ -168,7 +170,12 @@ def test_steampipe_scripts_and_dry_run(tmp_path: Path, monkeypatch: pytest.Monke
     (tmp_path / "tools" / "steamcmd.exe").write_bytes(b"")
     assert steampipe.problems(config) == []
     called: list[object] = []
-    monkeypatch.setattr(steampipe.subprocess, "run", lambda *a, **k: called.append(a) or _Done())
+
+    def fake_run(*args: object, **kwargs: object) -> _Done:
+        called.append(args)
+        return _Done()
+
+    monkeypatch.setattr("futsu_publication.steampipe.subprocess.run", fake_run)
     assert steampipe.upload(config, dry_run=True)
     assert called == [] or all("git" in str(c) for c in called), "a dry run never calls steamcmd"
     plan = steampipe.prepare(config)
@@ -188,3 +195,92 @@ def test_steampipe_refuses_the_default_branch(tmp_path: Path) -> None:
 class _Done:
     returncode = 0
     stdout = "abc123\n"
+
+
+LICENSES = """
+[licenses]
+folder = "licences"
+notice = "publication/NOTICE.txt"
+files = ["publication/LGPL-3.0.txt", ["data/flags/LICENSE", "MIT-flags.txt"]]
+exclude = ["devtool"]
+drop = ["LicenseRef-Qt-*.txt"]
+"""
+
+
+def _licensed_game(tmp_path: Path) -> Path:
+    root = _game(tmp_path)
+    toml = root / "publication" / "publication.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + LICENSES, encoding="utf-8")
+    (root / "publication" / "NOTICE.txt").write_text("Demo uses Qt under the LGPL.\n", encoding="utf-8")
+    (root / "publication" / "LGPL-3.0.txt").write_text("GNU LESSER GENERAL PUBLIC LICENSE\n", encoding="utf-8")
+    (root / "data" / "flags").mkdir(parents=True)
+    (root / "data" / "flags" / "LICENSE").write_text("The MIT License\n", encoding="utf-8")
+    return root
+
+
+def _package(tmp_path: Path, name: str, licence: str, *files: str) -> licenses.Package:
+    folder = tmp_path / "site" / f"{name}.dist-info"
+    folder.mkdir(parents=True)
+    for f in files:
+        (folder / f).write_text(f"{name} {f}\n", encoding="utf-8")
+    return licenses.Package(name, "1.0", licence, tuple(folder / f for f in files))
+
+
+def _inventory(tmp_path: Path, *packages: licenses.Package) -> licenses.Inventory:
+    python = tmp_path / "python-LICENSE.txt"
+    python.write_text("PSF\n", encoding="utf-8")
+    return licenses.Inventory("3.12.10", python, packages)
+
+
+def test_licenses_config(tmp_path: Path) -> None:
+    assert not load_config(_game(tmp_path / "plain")).licenses.enabled
+    config = load_config(_licensed_game(tmp_path / "licensed"))
+    assert config.licenses.enabled and config.licenses.folder == "licences"
+    assert [name for _, name in config.licenses.files] == ["LGPL-3.0.txt", "MIT-flags.txt"]
+    assert config.licenses.files[1][0] == config.root / "data" / "flags" / "LICENSE"
+
+
+def test_licenses_written_with_their_index(tmp_path: Path) -> None:
+    config = load_config(_licensed_game(tmp_path))
+    found = _inventory(
+        tmp_path,
+        _package(tmp_path, "PySide6", "LGPL-3.0-only OR GPL-3.0-only", "LicenseRef-Qt-Commercial.txt"),
+        _package(tmp_path, "PyYAML", "MIT", "LICENSE"),
+        _package(tmp_path, "pyinstaller", "GPL", "COPYING.txt"),
+        _package(tmp_path, "devtool", "", "LICENSE"),
+        _package(tmp_path, "Demo", "", "LICENSE"),
+    )
+    dist = tmp_path / "dist"
+    assert licenses.write(config, dist, found) == []
+    folder = dist / "licences"
+    assert (folder / "pyyaml-1.0" / "LICENSE").is_file() and (folder / "python-LICENSE.txt").is_file()
+    assert not (folder / "pyside6-1.0").exists(), "the dropped Qt commercial licence is not copied"
+    assert not (folder / "pyinstaller-1.0").exists() and not (folder / "devtool-1.0").exists()
+    assert not (folder / "demo-1.0").exists(), "the game is not a third party"
+    index = (folder / licenses.INDEX).read_text(encoding="utf-8")
+    assert index.startswith("Demo uses Qt under the LGPL.")
+    assert "PySide6 1.0 (LGPL-3.0-only OR GPL-3.0-only)" in index and "Python 3.12.10" in index
+    assert "MIT-flags.txt" in index and (folder / "MIT-flags.txt").is_file()
+    assert licenses.check(config, dist) == []
+    (folder / "LGPL-3.0.txt").unlink()
+    assert licenses.check(config, dist) == ["LGPL-3.0.txt missing from licences/"]
+
+
+def test_licenses_refuse_an_unlicensed_package(tmp_path: Path) -> None:
+    config = load_config(_licensed_game(tmp_path))
+    (config.root / "data" / "flags" / "LICENSE").unlink()
+    problems = licenses.write(config, tmp_path / "dist", _inventory(tmp_path, _package(tmp_path, "mystery", "")))
+    assert any("mystery ships no licence" in p for p in problems)
+    assert any("licence file not found" in p and "LICENSE" in p for p in problems)
+
+
+def test_licenses_inventory_of_a_real_interpreter(tmp_path: Path) -> None:
+    found = licenses.inventory(load_config(_game(tmp_path)), Path(sys.executable))
+    assert found.python_version.startswith(f"{sys.version_info.major}.{sys.version_info.minor}")
+    assert any(licenses.normalized(p.name) == "pytest" for p in found.packages)
+
+
+def test_steampipe_requires_the_licences(tmp_path: Path) -> None:
+    config = load_config(_licensed_game(tmp_path))
+    config.dist.mkdir(parents=True)
+    assert any("THIRD_PARTY.txt" in p for p in steampipe.problems(config, dry_run=True))

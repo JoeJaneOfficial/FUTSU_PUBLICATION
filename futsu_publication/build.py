@@ -4,7 +4,8 @@ Steps: a clean build venv from the game's lock file (rebuilt only when the lock 
 game installed into it as a package (so the bundle holds exactly the data the package declares),
 PyInstaller run from ``build/`` (run from the repository root it would read the source tree
 instead of the installed package), optional Qt pruning, the Steamworks DLL if present, then a
-smoke test of the frozen executable.
+the third-party licence texts
+(``licenses``), then a smoke test of the frozen executable.
 
 One-folder rather than one-file: fast start-up, light Steam patches (only changed files are
 downloaded), and Qt's DLLs stay replaceable as the LGPL requires.
@@ -19,6 +20,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+from futsu_publication import licenses
 from futsu_publication.config import GameConfig
 
 STEAM_DLL = "steam_api64.dll"
@@ -165,5 +167,13 @@ def build(config: GameConfig) -> bool:
     if saved:
         print(f"Qt pruning: {saved / 1e6:.0f} MB removed")
     print("Steam:", "DLL added" if add_steam(config, dist) else "no DLL (bridge stays inert)")
+    if config.licenses.enabled:
+        problems = licenses.write(config, dist, licenses.inventory(config, venv_python(config)))
+        for problem in problems:
+            print("  !", problem)
+        if problems:
+            print("Licences incomplete: build refused.")
+            return False
+        print(f"Licences: {config.licenses.folder}/{licenses.INDEX}")
     print(f"Build: {folder_size(dist) / 1e6:.0f} MB")
     return smoke_test(config)

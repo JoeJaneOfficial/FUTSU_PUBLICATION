@@ -12,6 +12,7 @@ copy (`futsu_publication/` at its root, with a `MANIFEST.json`).
 | `achievements.py` | definitions (YAML), unlocks, progress stats, atomic state, outputs |
 | `steam.py` | `ctypes` bridge over `steam_api64.dll`; inert without Steam |
 | `steampipe.py` | upload to Steam: checks, `app_build`/`depot_build` VDF scripts, `steamcmd` on a beta branch |
+| `licenses.py` | third-party licence texts next to the executable (`[licenses]`): Python, every bundled package, the game's own files, an index ; the build fails on an unlicensed package |
 | `sync.py` | copy the kit into a game (`python -m futsu_publication.sync <game root>`), check a copy (`check`) |
 
 From a game root: `python -m futsu_publication build | smoke | archive | steam` (`steam --dry-run`
