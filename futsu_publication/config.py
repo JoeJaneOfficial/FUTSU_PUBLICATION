@@ -21,6 +21,11 @@ Example (Dirty Peloton)::
 
     [steam]
     sdk_dir = "publication/steam"    # steam_api64.dll goes here (never committed)
+    app_id = 0                       # Steamworks App ID (0 until the app exists)
+    depot_id = 0                     # the Windows depot (usually app_id + 1)
+    branch = "beta"                  # where uploads go live; never "default"
+    steamcmd = "publication/steam/steamcmd/steamcmd.exe"   # else steamcmd on PATH
+    account = ""                     # build account; FUTSU_STEAM_ACCOUNT overrides
 """
 
 from __future__ import annotations
@@ -39,6 +44,15 @@ class QtConfig:
 
 
 @dataclass(frozen=True)
+class SteamConfig:
+    app_id: int = 0
+    depot_id: int = 0
+    branch: str = "beta"
+    steamcmd: Path | None = None
+    account: str = ""
+
+
+@dataclass(frozen=True)
 class GameConfig:
     root: Path
     name: str
@@ -54,6 +68,7 @@ class GameConfig:
     smoke_args: tuple[str, ...] = ()
     qt: QtConfig = field(default_factory=QtConfig)
     steam_sdk_dir: Path | None = None
+    steam: SteamConfig = field(default_factory=SteamConfig)
 
     @property
     def build_dir(self) -> Path:
@@ -95,4 +110,11 @@ def load_config(root: Path, path: Path | None = None) -> GameConfig:
         smoke_args=tuple(str(a) for a in game.get("smoke_args", ())),
         qt=QtConfig(tuple(qt.get("prune", ())), tuple(qt.get("languages", ()))),
         steam_sdk_dir=root / steam["sdk_dir"] if steam.get("sdk_dir") else None,
+        steam=SteamConfig(
+            app_id=int(steam.get("app_id", 0)),
+            depot_id=int(steam.get("depot_id", 0)),
+            branch=str(steam.get("branch", "beta")),
+            steamcmd=root / steam["steamcmd"] if steam.get("steamcmd") else None,
+            account=str(steam.get("account", "")),
+        ),
     )

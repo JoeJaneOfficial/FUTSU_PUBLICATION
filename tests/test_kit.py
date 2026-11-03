@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from futsu_publication import steampipe
 from futsu_publication import sync as sync_module
 from futsu_publication.achievements import Achievements, load_definitions
 from futsu_publication.build import add_steam, prune_qt
@@ -123,3 +124,67 @@ def test_sync_and_check(tmp_path: Path) -> None:
     (copy / "build.py").write_text("# edited by hand\n", encoding="utf-8")
     (copy / "extra.py").write_text("", encoding="utf-8")
     assert sorted(sync_module.check(copy)) == ["edited: build.py", "extra: extra.py"]
+
+
+STEAM = """
+app_id = 480
+depot_id = 481
+steamcmd = "tools/steamcmd.exe"
+account = "builder"
+"""
+
+
+def _steam_game(tmp_path: Path, extra: str = STEAM) -> Path:
+    root = _game(tmp_path)
+    toml = root / "publication" / "publication.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    return root
+
+
+def test_steam_config_defaults(tmp_path: Path) -> None:
+    config = load_config(_game(tmp_path))
+    assert config.steam.app_id == 0 and config.steam.branch == "beta" and config.steam.steamcmd is None
+
+
+def test_steampipe_problems(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(steampipe.ACCOUNT_ENV, raising=False)
+    monkeypatch.setattr(steampipe.shutil, "which", lambda _: None)
+    config = load_config(_game(tmp_path))
+    assert any("no build" in p for p in steampipe.problems(config, dry_run=True))
+    config.dist.mkdir(parents=True)
+    (config.dist / "steam_appid.txt").write_text("480")
+    found = steampipe.problems(config)
+    assert any("steam_api64.dll" in p for p in found) and any("steam_appid" in p for p in found)
+    assert any("app_id" in p for p in found) and any("account" in p for p in found)
+    assert any("steamcmd" in p for p in found)
+
+
+def test_steampipe_scripts_and_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(steampipe.ACCOUNT_ENV, "from_env")
+    config = load_config(_steam_game(tmp_path))
+    config.dist.mkdir(parents=True)
+    (config.dist / "steam_api64.dll").write_bytes(b"dll")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "steamcmd.exe").write_bytes(b"")
+    assert steampipe.problems(config) == []
+    called: list[object] = []
+    monkeypatch.setattr(steampipe.subprocess, "run", lambda *a, **k: called.append(a) or _Done())
+    assert steampipe.upload(config, dry_run=True)
+    assert called == [] or all("git" in str(c) for c in called), "a dry run never calls steamcmd"
+    plan = steampipe.prepare(config)
+    app = plan.app_script.read_text(encoding="utf-8")
+    depot = plan.depot_script.read_text(encoding="utf-8")
+    assert '"AppID"\t"480"' in app and '"SetLive"\t"beta"' in app and '"481"\t"depot_build_481.vdf"' in app
+    assert '"DepotID"\t"481"' in depot and '"FileExclusion"\t"steam_appid.txt"' in depot
+    assert str(config.dist).replace("\\", "\\\\") in depot
+    assert plan.command[1:3] == ["+login", "from_env"] and plan.command[-1] == "+quit"
+
+
+def test_steampipe_refuses_the_default_branch(tmp_path: Path) -> None:
+    config = load_config(_steam_game(tmp_path, STEAM + 'branch = "default"\n'))
+    assert any("beta branch" in p for p in steampipe.problems(config, dry_run=True))
+
+
+class _Done:
+    returncode = 0
+    stdout = "abc123\n"

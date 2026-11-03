@@ -11,8 +11,10 @@ copy (`futsu_publication/` at its root, with a `MANIFEST.json`).
 | `logs.py` | `game.log` (rotating), `errors.log`, `crashes.log` in the player's data folder |
 | `achievements.py` | definitions (YAML), unlocks, progress stats, atomic state, outputs |
 | `steam.py` | `ctypes` bridge over `steam_api64.dll`; inert without Steam |
+| `steampipe.py` | upload to Steam: checks, `app_build`/`depot_build` VDF scripts, `steamcmd` on a beta branch |
 | `sync.py` | copy the kit into a game (`python -m futsu_publication.sync <game root>`), check a copy (`check`) |
 
-From a game root: `python -m futsu_publication build | smoke | archive`.
+From a game root: `python -m futsu_publication build | smoke | archive | steam` (`steam --dry-run`
+writes the scripts without sending; `--no-build` uploads the last build).
 
 Change the kit here, run its tests (`python -m pytest`), bump `__version__`, then sync each game.
